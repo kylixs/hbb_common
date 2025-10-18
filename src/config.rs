@@ -1045,44 +1045,26 @@ impl Config {
     /// Set options for unattended access mode
     /// This function is called when installing as a service to ensure
     /// unattended mode is properly configured
+    ///
+    /// IMPORTANT: This method bypasses the is_option_can_save() check and forces
+    /// the configuration to be saved even if values match defaults. This ensures
+    /// unattended mode settings persist across service restarts.
     pub fn set_unattended_mode_options() {
-        log::info!("Setting unattended access mode defaults");
+        log::info!("Force setting unattended access mode configuration");
 
-        // Set approval mode to password (not click)
-        Self::set_option("approve-mode".to_string(), "password".to_string());
+        // Directly modify CONFIG2, bypassing set_option() which would skip saving
+        // if values match DEFAULT_SETTINGS
+        let mut config = CONFIG2.write().unwrap();
 
-        // Set verification method to use permanent password
-        Self::set_option("verification-method".to_string(), "use-permanent-password".to_string());
+        // Always set these options, regardless of current values
+        config.options.insert("approve-mode".to_string(), "password".to_string());
+        config.options.insert("verification-method".to_string(), "use-permanent-password".to_string());
+        config.options.insert("allow-hide-cm".to_string(), "Y".to_string());
+        config.options.insert("allow-logon-screen-password".to_string(), "Y".to_string());
 
-        // Allow hiding connection manager window
-        Self::set_option("allow-hide-cm".to_string(), "Y".to_string());
-
-        // Allow access on login screen
-        Self::set_option("allow-logon-screen-password".to_string(), "Y".to_string());
-
-        log::info!("Unattended access mode defaults applied successfully");
-    }
-
-    /// Initialize DEFAULT_SETTINGS with unattended mode values
-    /// This makes unattended mode the baseline default configuration
-    pub fn init_unattended_mode_default_settings() {
-        log::info!("Initializing DEFAULT_SETTINGS with unattended mode defaults");
-
-        let mut defaults = DEFAULT_SETTINGS.write().unwrap();
-
-        // Set approval mode to password (not click)
-        defaults.insert("approve-mode".to_string(), "password".to_string());
-
-        // Set verification method to use permanent password
-        defaults.insert("verification-method".to_string(), "use-permanent-password".to_string());
-
-        // Allow hiding connection manager window
-        defaults.insert("allow-hide-cm".to_string(), "Y".to_string());
-
-        // Allow access on login screen
-        defaults.insert("allow-logon-screen-password".to_string(), "Y".to_string());
-
-        log::info!("DEFAULT_SETTINGS initialized with {} unattended mode options", defaults.len());
+        // Always save to ensure persistence
+        config.store();
+        log::info!("Unattended access mode configuration forced and saved successfully");
     }
 
     pub fn update_id() {
