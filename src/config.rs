@@ -1042,7 +1042,7 @@ impl Config {
         }
     }
 
-    /// Set options for unattended access mode
+    /// Set options for unattended access mode with IP direct access
     /// This function is called when installing as a service to ensure
     /// unattended mode is properly configured
     ///
@@ -1050,21 +1050,24 @@ impl Config {
     /// the configuration to be saved even if values match defaults. This ensures
     /// unattended mode settings persist across service restarts.
     pub fn set_unattended_mode_options() {
-        log::info!("Force setting unattended access mode configuration");
+        log::info!("Force setting unattended access mode configuration (IP direct access)");
 
         // Directly modify CONFIG2, bypassing set_option() which would skip saving
         // if values match DEFAULT_SETTINGS
         let mut config = CONFIG2.write().unwrap();
 
-        // Always set these options, regardless of current values
+        // Unattended mode basic options
         config.options.insert("approve-mode".to_string(), "password".to_string());
         config.options.insert("verification-method".to_string(), "use-permanent-password".to_string());
         config.options.insert("allow-hide-cm".to_string(), "Y".to_string());
         config.options.insert("allow-logon-screen-password".to_string(), "Y".to_string());
 
+        // Enable IP direct access mode
+        config.options.insert("direct-server".to_string(), "Y".to_string());
+
         // Always save to ensure persistence
         config.store();
-        log::info!("Unattended access mode configuration forced and saved successfully");
+        log::info!("Unattended access mode configuration (with IP direct access) forced and saved successfully");
     }
 
     pub fn update_id() {
