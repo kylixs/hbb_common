@@ -668,9 +668,9 @@ impl Config {
     pub fn log_path() -> PathBuf {
         #[cfg(target_os = "macos")]
         {
-            if let Some(path) = dirs_next::home_dir().as_mut() {
+            if let Some(mut path) = dirs_next::home_dir() {
                 path.push(format!("Library/Logs/{}", *APP_NAME.read().unwrap()));
-                return path.clone();
+                return path;
             }
         }
         #[cfg(target_os = "linux")]
@@ -703,8 +703,8 @@ impl Config {
                 path.push("log");
                 return path;
             }
-            "".into()
         }
+        "".into()
     }
 
     pub fn ipc_path(postfix: &str) -> String {
