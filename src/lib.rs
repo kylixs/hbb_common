@@ -9,6 +9,7 @@ pub use protos::message as message_proto;
 pub use protos::rendezvous as rendezvous_proto;
 use serde_derive::{Deserialize, Serialize};
 use std::{
+    ffi::CString,
     fs::File,
     io::{self, BufRead},
     net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
@@ -357,10 +358,37 @@ pub fn is_domain_port_str(id: &str) -> bool {
     }
 }
 
+// Helper function to output debug string that DebugView can capture (Windows only)
+// [LOG_INIT] messages are only sent to DebugView, not terminal (to keep CLI output clean)
+#[cfg(target_os = "windows")]
+fn debug_output(msg: &str) {
+    use std::ffi::CString;
+    if let Ok(c_msg) = CString::new(msg) {
+        unsafe {
+            use winapi::um::debugapi::OutputDebugStringA;
+            OutputDebugStringA(c_msg.as_ptr());
+        }
+    }
+    // Only output [LOG_INIT] messages to DebugView, not terminal
+    if !msg.contains("[LOG_INIT]") {
+        eprintln!("{}", msg);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn debug_output(msg: &str) {
+    // Only output [LOG_INIT] messages to DebugView, not terminal
+    if !msg.contains("[LOG_INIT]") {
+        eprintln!("{}", msg);
+    }
+}
+
 pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHandle> {
+    use std::sync::Mutex;
     static INIT: std::sync::Once = std::sync::Once::new();
-    #[allow(unused_mut)]
-    let mut logger_holder: Option<flexi_logger::LoggerHandle> = None;
+    #[allow(dead_code)]
+    static LOGGER_HOLDER: Mutex<Option<flexi_logger::LoggerHandle>> = Mutex::new(None);
+
     INIT.call_once(|| {
         #[cfg(debug_assertions)]
         {
@@ -381,13 +409,17 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
             }
             use flexi_logger::*;
             if let Ok(x) = Logger::try_with_env_or_str("debug") {
-                logger_holder = x
-                    .log_to_file(FileSpec::default().directory(path))
-                    .write_mode(if _is_async {
-                        WriteMode::Async
-                    } else {
-                        WriteMode::Direct
-                    })
+                let write_mode = if _is_async {
+                    WriteMode::Async
+                } else {
+                    WriteMode::Direct
+                };
+
+                // Try to start logger with primary path
+                debug_output(&format!("[LOG_INIT] Attempting to initialize logger at: {:?}", path));
+                match x
+                    .log_to_file(FileSpec::default().directory(&path))
+                    .write_mode(write_mode)
                     .format(opt_format)
                     .rotate(
                         Criterion::Age(Age::Day),
@@ -395,11 +427,55 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
                         Cleanup::KeepLogFiles(31),
                     )
                     .start()
-                    .ok();
+                {
+                    Ok(handle) => {
+                        *LOGGER_HOLDER.lock().unwrap() = Some(handle);
+                        debug_output(&format!("[LOG_INIT] ✓ Successfully initialized log in primary directory: {:?}", path));
+                    }
+                    Err(e) => {
+                        // Output diagnostic info
+                        debug_output(&format!("[LOG_INIT] ✗ Failed to init log in {:?}: {}", path, e));
+
+                        // Fallback to temp directory
+                        let temp_path = std::env::temp_dir().join("RustDesk").join("log");
+                        let temp_path_with_name = if !_name.is_empty() {
+                            temp_path.join(_name)
+                        } else {
+                            temp_path
+                        };
+
+                        debug_output(&format!("[LOG_INIT] → Attempting fallback to temp directory: {:?}", temp_path_with_name));
+
+                        if let Ok(x2) = Logger::try_with_env_or_str("debug") {
+                            match x2
+                                .log_to_file(FileSpec::default().directory(&temp_path_with_name))
+                                .write_mode(write_mode)
+                                .format(opt_format)
+                                .rotate(
+                                    Criterion::Age(Age::Day),
+                                    Naming::Timestamps,
+                                    Cleanup::KeepLogFiles(31),
+                                )
+                                .start()
+                            {
+                                Ok(handle) => {
+                                    *LOGGER_HOLDER.lock().unwrap() = Some(handle);
+                                    debug_output(&format!("[LOG_INIT] ✓ Successfully initialized log in temp directory: {:?}", temp_path_with_name));
+                                }
+                                Err(e2) => {
+                                    debug_output(&format!("[LOG_INIT] ✗✗ Failed to init log in temp directory: {}", e2));
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     });
-    logger_holder
+
+    // Return None since LoggerHandle is not Clone and most callers don't use the return value
+    // The logger is stored in LOGGER_HOLDER static variable
+    None
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
