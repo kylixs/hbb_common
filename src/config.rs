@@ -636,7 +636,17 @@ impl Config {
             path.push(p);
             return path;
         }
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        #[cfg(target_os = "windows")]
+        {
+            // Use C:\ProgramData\RustDesk\config for all users
+            let system_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
+            let mut path = PathBuf::from(format!("{}\\ProgramData", system_drive));
+            path.push(&*APP_NAME.read().unwrap());
+            path.push("config");
+            path.push(p);
+            return path;
+        }
+        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows")))]
         {
             #[cfg(not(target_os = "macos"))]
             let org = "".to_owned();
@@ -677,12 +687,24 @@ impl Config {
             std::fs::create_dir_all(&path).ok();
             return path;
         }
-        if let Some(path) = Self::path("").parent() {
-            let mut path: PathBuf = path.into();
+        #[cfg(target_os = "windows")]
+        {
+            // Use C:\ProgramData\RustDesk\log for all users
+            let system_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
+            let mut path = PathBuf::from(format!("{}\\ProgramData", system_drive));
+            path.push(&*APP_NAME.read().unwrap());
             path.push("log");
             return path;
         }
-        "".into()
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android", target_os = "windows")))]
+        {
+            if let Some(path) = Self::path("").parent() {
+                let mut path: PathBuf = path.into();
+                path.push("log");
+                return path;
+            }
+            "".into()
+        }
     }
 
     pub fn ipc_path(postfix: &str) -> String {
